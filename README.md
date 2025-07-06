@@ -36,6 +36,10 @@ The objective is to maximize utilization and revenue while maintaining fair and 
 
 
 ⚙️ Project Architecture & Workflow
+![Flowchart showing the Project Architecture](https://github.com/Avisweta-De/IITG-Summer-Analytics/commit/2fa13e9e0f359eda678ee8bb23a44d12df4b42b2#diff-0de9ecab34afb5ff5903dfbdca82079075afdcfcac5e22b6a9f4d1a1131f6640)
+
+
+
 📥 1. Data Ingestion
 73-day data for 14 parking spaces at 18 time points/day
 Features: Occupancy, Capacity, Latitude/Longitude, VehicleType, QueueLength, TrafficConditionNearby, IsSpecialDay
