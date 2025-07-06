@@ -1,0 +1,472 @@
+**INTRODUCTION**
+
+Urban parking spaces are a limited and highly demanded resource. Prices that remain static
+ throughout the day can lead to inefficiencies — either overcrowding or underutilization.
+ To improve utilization, dynamic pricing based on demand, competition, and real-time
+ conditions is crucial
+
+**GOAL**
+
+Our goal is to build a dynamic pricing model for each parking space such that:
+
+ • The price is realistically updated in real-time based on:
+ – Historical occupancy patterns
+
+ – Queue length
+
+ – Nearby traffic
+
+ – Special events
+
+ – Vehicle type
+
+ – Competitor parking prices
+
+ • It starts from a base price of $10
+
+ • The price variation is smooth and explainable, not erratic
+
+ • Optional: The system suggests rerouting vehicles to nearby lots if the current lot
+ is overburdened.
+
+import pandas as pd
+import numpy as np
+
+from google.colab import files
+
+uploaded = files.upload()  # Choose your file when prompted
+
+import pandas as pd
+df = pd.read_csv('parking.csv')  # Use the exact filename you uploaded
+
+
+df = pd.read_csv('/content/parking.csv')
+
+df
+
+**Model 1: Baseline Linear Model**
+
+import numpy as np
+import pandas as pd
+
+class BaselineLinearPricingModel:
+    def __init__(self, base_price=10.0, alpha=1.0):
+        """
+        Initialize the baseline linear pricing model.
+
+        Parameters:
+        - base_price: Starting price for parking (default $10)
+        - alpha: Sensitivity parameter for occupancy (default 1.0)
+        """
+        self.base_price = base_price
+        self.alpha = alpha
+        self.current_price = base_price
+
+    def update_price(self, occupancy, capacity):
+        """
+        Update the parking price based on current occupancy and capacity.
+
+        Parameters:
+        - occupancy: Current number of parked vehicles
+        - capacity: Maximum number of vehicles that can be parked
+
+        Returns:
+        - Updated price
+        """
+        if capacity == 0:
+            raise ValueError("Capacity cannot be zero")
+
+        occupancy_ratio = occupancy / capacity
+        price_change = self.alpha * occupancy_ratio
+        self.current_price = self.current_price + price_change
+
+        # Ensure price doesn't go below base price
+        self.current_price = max(self.current_price, self.base_price)
+
+        return self.current_price
+
+    def reset(self):
+        """Reset the price to the base price."""
+        self.current_price = self.base_price
+
+
+
+
+**EXAMPLE TO SHOW THE PERFORMANCE OF MODEL 1**
+
+# Example usage
+if __name__ == "__main__":
+    # Initialize the model
+    pricing_model = BaselineLinearPricingModel(base_price=10.0, alpha=2.0)
+
+    # Simulate price updates throughout a day
+    print("Simulating price changes throughout a day:")
+    print(f"Initial price: ${pricing_model.current_price:.2f}")
+
+    # Sample data: capacity = 50, occupancy changes throughout the day
+    capacity = 50
+    occupancy_pattern = [10, 20, 35, 45, 50, 40, 30, 15]
+
+    for i, occupancy in enumerate(occupancy_pattern):
+        new_price = pricing_model.update_price(occupancy, capacity)
+        print(f"Time {i+1}: Occupancy {occupancy}/{capacity} - New price: ${new_price:.2f}")
+
+    # Reset for a new day
+    pricing_model.reset()
+    print("\nModel reset for new day. Current price:", pricing_model.current_price)
+
+
+
+
+**Model 2: Demand-Based Price Function**
+
+import numpy as np
+
+class DemandPricingModel:
+    def __init__(self, base_price=10.0):
+        self.base_price = base_price
+
+        # Demand coefficients (adjust these based on your needs)
+        self.alpha = 1.2    # Occupancy sensitivity
+        self.beta = 0.5     # Queue length sensitivity
+        self.gamma = 0.3    # Traffic sensitivity (negative)
+        self.delta = 1.5    # Special day boost
+        self.lambda_ = 0.8  # Overall demand multiplier
+
+        # Vehicle type weights
+        self.vehicle_weights = {
+            'car': 1.0,
+            'bike': 0.6,
+            'truck': 1.8
+        }
+
+    def calculate_demand(self, occupancy, capacity, queue_length,
+                        traffic_level, is_special_day, vehicle_type):
+        """Calculate normalized demand score"""
+        # Calculate components exactly as per the project formula
+        demand = (
+            self.alpha * (occupancy / max(capacity, 1)) +  # Occupancy rate
+            self.beta * queue_length -                    # Queue length
+            self.gamma * traffic_level +                  # Traffic (reduces demand)
+            (self.delta if is_special_day else 0) +       # Special day
+            self.vehicle_weights.get(vehicle_type, 1.0)   # Vehicle type
+        )
+
+        # Normalize demand to 0-1 range using sigmoid
+        return 1 / (1 + np.exp(-demand))
+
+    def calculate_price(self, occupancy, capacity, queue_length,
+                       traffic_level, is_special_day, vehicle_type):
+        """Calculate current price using the demand function"""
+        demand = self.calculate_demand(
+            occupancy, capacity, queue_length,
+            traffic_level, is_special_day, vehicle_type
+        )
+
+        # Apply pricing formula exactly as specified
+        price = self.base_price * (1 + self.lambda_ * demand)
+
+        # Apply bounds (0.5x to 2x base price)
+        return max(self.base_price * 0.5, min(self.base_price * 2, price))
+
+
+
+**EXAMPLE TO SHOW THE PERFORMANCE OF THE MODEL 2**
+
+# Example usage
+model = DemandPricingModel()
+
+# Test scenario: 35/50 occupied, 5 in queue, moderate traffic, normal day, car
+price = model.calculate_price(
+    occupancy=35,
+    capacity=50,
+    queue_length=5,
+    traffic_level=0.6,
+    is_special_day=False,
+    vehicle_type='car'
+)
+
+print(f"Calculated price: ${price:.2f}")
+
+**Model 3 (Optional): Competitive Pricing Model**
+
+import numpy as np
+from geopy.distance import geodesic  # Install with: pip install geopy
+
+class CompetitivePricingModel:
+    def __init__(self, base_price=10.0, max_price=20.0, min_price=5.0):
+        self.base_price = base_price
+        self.max_price = max_price
+        self.min_price = min_price
+
+        # Demand coefficients (from Model 2)
+        self.alpha = 1.2    # Occupancy
+        self.beta = 0.5     # Queue
+        self.gamma = 0.3    # Traffic
+        self.delta = 1.5    # Special day
+        self.lambda_ = 0.8  # Demand multiplier
+
+        # Vehicle weights
+        self.vehicle_weights = {
+            'car': 1.0,
+            'bike': 0.6,
+            'truck': 1.8
+        }
+
+        # Competitor settings
+        self.competition_radius = 500  # meters
+        self.competition_weight = 0.3  # How much competitor prices affect ours
+
+    def set_competitors(self, competitor_data):
+        """
+        Register competitor parking lots.
+
+        competitor_data = [
+            {'id': 1, 'lat': 40.7128, 'lon': -74.0060, 'price': 12.0, 'occupancy': 0.7},
+            # ... more competitors ...
+        ]
+        """
+        self.competitors = competitor_data
+
+    def calculate_demand(self, occupancy, capacity, queue, traffic, is_special, vehicle_type):
+        """Same as Model 2's demand calculation"""
+        vehicle_weight = self.vehicle_weights.get(vehicle_type, 1.0)
+        demand = (
+            self.alpha * (occupancy / max(capacity, 1)) +
+            self.beta * queue -
+            self.gamma * traffic +
+            (self.delta if is_special else 0) +
+            vehicle_weight
+        )
+        return 1 / (1 + np.exp(-demand))
+
+    def get_nearby_competitors(self, current_lat, current_lon):
+        """Find competitors within radius"""
+        nearby = []
+        for comp in self.competitors:
+            dist = geodesic(
+                (current_lat, current_lon),
+                (comp['lat'], comp['lon'])
+            ).meters
+            if dist <= self.competition_radius:
+                nearby.append(comp)
+        return nearby
+
+    def calculate_price(self, current_lat, current_lon, occupancy, capacity,
+                       queue, traffic, is_special, vehicle_type):
+        """Calculate price with competition awareness"""
+        # Base demand price (Model 2)
+        demand = self.calculate_demand(
+            occupancy, capacity, queue, traffic, is_special, vehicle_type
+        )
+        price = self.base_price * (1 + self.lambda_ * demand)
+
+        # Adjust for competition if data exists
+        if hasattr(self, 'competitors'):
+            nearby = self.get_nearby_competitors(current_lat, current_lon)
+            if nearby:
+                avg_competitor_price = np.mean([c['price'] for c in nearby])
+
+                # If we're fuller than competitors, price can be higher
+                our_occupancy = occupancy / capacity
+                avg_comp_occupancy = np.mean([c['occupancy'] for c in nearby])
+
+                if our_occupancy > avg_comp_occupancy:
+                    # We're in higher demand → price can be slightly higher
+                    price = max(price, avg_competitor_price * 1.1)
+                else:
+                    # We need to compete → match or slightly undercut
+                    price = min(price, avg_competitor_price * 0.95)
+
+        # Apply absolute bounds
+        return np.clip(price, self.min_price, self.max_price)
+
+    def suggest_reroute(self, current_lat, current_lon, occupancy, capacity):
+        """Suggest alternative parking if full"""
+        if not hasattr(self, 'competitors'):
+            return None
+
+        if occupancy >= capacity:
+            nearby = self.get_nearby_competitors(current_lat, current_lon)
+            available_lots = [
+                c for c in nearby
+                if c['occupancy'] < 0.9  # Under 90% full
+            ]
+            if available_lots:
+                # Sort by price then distance
+                available_lots.sort(key=lambda x: (
+                    x['price'],
+                    geodesic((current_lat, current_lon), (x['lat'], x['lon'])).meters
+                ))
+                return available_lots[0]  # Return cheapest nearest option
+        return None
+
+
+
+
+
+**EXAMPLE TO SHOW THE PERFORMANCE OF THE MODEL 3**
+
+# Example Usage
+if __name__ == "__main__":
+    # Initialize model
+    model = CompetitivePricingModel()
+
+    # Register competitors (in real life, this would come from live data)
+    competitors = [
+        {'id': 1, 'lat': 40.7128, 'lon': -74.0060, 'price': 12.0, 'occupancy': 0.7},
+        {'id': 2, 'lat': 40.7130, 'lon': -74.0058, 'price': 14.0, 'occupancy': 0.4},
+        {'id': 3, 'lat': 40.7125, 'lon': -74.0065, 'price': 9.0, 'occupancy': 0.9}
+    ]
+    model.set_competitors(competitors)
+
+    # Our parking lot's current state
+    our_lat, our_lon = 40.7129, -74.0062
+    occupancy = 45
+    capacity = 50
+
+    # Calculate price with competition
+    price = model.calculate_price(
+        current_lat=our_lat,
+        current_lon=our_lon,
+        occupancy=occupancy,
+        capacity=capacity,
+        queue=5,
+        traffic=0.7,
+        is_special=False,
+        vehicle_type='car'
+    )
+    print(f"Competitive price: ${price:.2f}")
+
+    # Check for rerouting suggestions if full
+    if occupancy >= capacity:
+        suggestion = model.suggest_reroute(our_lat, our_lon, occupancy, capacity)
+        if suggestion:
+            print(f"Suggest rerouting to Lot {suggestion['id']} (${suggestion['price']:.2f}, "
+                  f"{suggestion['occupancy']:.0%} full)")
+
+
+ **Real-time visualizations using Bokeh.**
+ 
+
+
+
+import pandas as pd
+import numpy as np
+from bokeh.plotting import figure, output_file, save
+from bokeh.layouts import column
+from bokeh.palettes import Category10
+
+# Step 1: Load your dataset
+df = pd.read_csv('parking.csv')  # Replace with your correct file path
+
+
+
+# ✅ Step 2: Combine date and time with day-first interpretation
+df['Timestamp'] = pd.to_datetime(
+    df['LastUpdatedDate'] + ' ' + df['LastUpdatedTime'],
+    dayfirst=True
+)
+
+
+# Step 4: Define baseline pricing model
+BASE_PRICE = 10
+
+def baseline_linear_model(df, alpha=5):
+    df = df.copy()
+    df["BaselineLinearPricingModel"] = BASE_PRICE
+    for lot in df["ID"].unique():
+        lot_df = df[df["ID"] == lot].sort_values("Timestamp")
+        prices = [BASE_PRICE]
+        for i in range(1, len(lot_df)):
+            prev_price = prices[-1]
+            occ = lot_df.iloc[i]["Occupancy"]
+            cap = lot_df.iloc[i]["Capacity"]
+            new_price = prev_price + alpha * (occ / cap)
+            prices.append(new_price)
+        df.loc[df["ID"] == lot, "BaselineLinearPricingModel"] = prices
+    return df
+
+# Step 5: Run the model
+df = baseline_linear_model(df, alpha=5)
+
+# Step 6: Save the plot
+output_file("BaselineLinearPricingModel.html")
+
+def plot_baseline_model(df, lot_ids=[1, 2, 3]):
+    plots = []
+    colors = Category10[10]
+    for idx, lot in enumerate(lot_ids):
+        lot_df = df[df['ID'] == lot]
+        p = figure(title=f"Baseline Pricing: Lot {lot}", x_axis_type='datetime', width=600, height=300)
+        p.line(lot_df["Timestamp"], lot_df["BaselineLinearPricingModel"],
+               line_width=2, legend_label=f"Lot {lot}", color=colors[idx])
+        p.xaxis.axis_label = 'Time'
+        p.yaxis.axis_label = 'Price'
+        plots.append(p)
+    save(column(*plots))
+
+# Step 7: Generate the HTML plot for selected lots
+plot_baseline_model(df, lot_ids=[1, 2, 3])
+
+
+import pandas as pd
+from bokeh.plotting import figure, output_file, save
+from bokeh.models import HoverTool
+
+# Sample data
+data = {
+    'ID': [1, 1, 1],
+    'Capacity': [100, 100, 100],
+    'Occupancy': [40, 60, 80],
+    'LastUpdatedDate': ['13-10-2016', '13-10-2016', '13-10-2016'],
+    'LastUpdatedTime': ['08:00:00', '08:30:00', '09:00:00']
+}
+
+# Create DataFrame
+df = pd.DataFrame(data)
+
+# Combine date and time into Timestamp
+df['Timestamp'] = pd.to_datetime(df['LastUpdatedDate'] + ' ' + df['LastUpdatedTime'], dayfirst=True)
+df = df.sort_values(by='Timestamp')
+
+# Baseline model parameters
+BASE_PRICE = 10
+ALPHA = 5
+
+# Apply model
+prices = [BASE_PRICE]
+for i in range(1, len(df)):
+    prev_price = prices[-1]
+    occ = df.iloc[i]['Occupancy']
+    cap = df.iloc[i]['Capacity']
+    new_price = prev_price + ALPHA * (occ / cap)
+    prices.append(round(new_price, 2))
+
+df['Price'] = prices
+
+# --- Bokeh Plot ---
+output_file("baseline_bokeh_example.html")
+
+p = figure(title="Baseline Pricing Over Time (Example)", x_axis_type='datetime', width=700, height=400)
+p.line(df['Timestamp'], df['Price'], line_width=3, color='navy', legend_label="Lot 1")
+p.circle(df['Timestamp'], df['Price'], size=8, color='orange')
+
+# Hover tooltip
+hover = HoverTool(tooltips=[("Time", "@x{%F %H:%M}"), ("Price", "@y")], formatters={"@x": "datetime"})
+p.add_tools(hover)
+
+p.xaxis.axis_label = 'Time'
+p.yaxis.axis_label = 'Price'
+p.legend.location = 'top_left'
+
+save(p)  # Saves to baseline_bokeh_example.html
+
+
+from bokeh.plotting import output_file, save
+
+output_file("baseline_bokeh_example.html")  # This saves the file
+save(p)
+from google.colab import files
+files.download("baseline_bokeh_example.html")
+
